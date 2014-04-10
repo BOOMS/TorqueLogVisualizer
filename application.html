@@ -1,0 +1,221 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ko" xml:lang="ko">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta http-equiv="Content-Script-Type" content="text/javascript" />
+    <meta http-equiv="Content-Style-Type" content="text/css" />
+
+    <title>Torque log visualizer</title>
+
+    <!-- Latest compiled and minified CSS -->
+    <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap.min.css">
+    
+    <!-- Optional theme -->
+    <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap-theme.min.css">
+    <style>
+    #items {clear:both;overflow:auto;}
+    #items li {list-style:none;float:left;width:350px;font-size:12px;font-family:consolas;}
+    #items li span {display:block;padding:0 5px;cursor:pointer;}
+    #items li strike {display:block;padding:0 5px;color:#333;}
+    </style>
+
+    <link href="http://nvd3.org/assets/css/nv.d3.css" rel="stylesheet">
+
+    <script type="text/javascript" src="http://code.jquery.com/jquery-2.1.0.min.js"></script>
+
+    <!-- Latest compiled and minified JavaScript -->
+    <script type="text/javascript" src="http://netdna.bootstrapcdn.com/bootstrap/3.1.1/js/bootstrap.min.js"></script>
+
+    <script type="text/javascript" src="https://www.google.com/jsapi"></script>
+
+    <script type="text/javascript" src="http://d3js.org/d3.v3.min.js"></script>
+    <script type="text/javascript" src="http://nvd3.org/assets/js/nv.d3.js"></script>
+
+    <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+      <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+    <![endif]-->
+
+    <script type="text/javascript">
+    var reader;
+
+	function checkFileAPI() {
+        if (window.File && window.FileReader && window.FileList && window.Blob) {
+            reader = new FileReader();
+            return true; 
+        } else {
+            alert('The File APIs are not fully supported by your browser. Fallback required.');
+            return false;
+        }
+    }
+    
+    function readText(filePath) {
+        var output = "";
+        if(filePath.files && filePath.files[0]) {           
+            reader.onload = function (e) {
+                output = e.target.result;
+                parseFile(output);
+            };
+            reader.readAsText(filePath.files[0]);
+        } else if (ActiveXObject && filePath) {
+			console.log("using activex");
+            try {
+                reader = new ActiveXObject("Scripting.FileSystemObject");
+                var file = reader.OpenTextFile(filePath, 1);
+                output = file.ReadAll();
+                file.Close();
+                displayContents(output);
+            } catch (e) {
+                if (e.number == -2146827859) {
+                    alert('Unable to access local files due to browser security settings. ' + 
+                     'To overcome this, go to Tools->Internet Options->Security->Custom Level. ' + 
+                     'Find the setting for "Initialize and script ActiveX controls not marked as safe" and change it to "Enable" or "Prompt"'); 
+                }
+            }       
+        } else {
+            return false;
+        }       
+        return true;
+    }   
+
+	var index = {};
+    var timeline = [];
+	var data = [];
+
+    function parseFile(txt) {
+		var rawData = txt.split("\n");
+		var header = rawData[0].split(",");
+
+        for(var i = 0; i < header.length; i++) {
+            header[i] = jQuery.trim(header[i]);
+        }
+
+        var menu_items = $("#items");
+
+        for(var i = 0; i < header.length; i++) {
+            var h = jQuery.trim(header[i]);
+            data[i] = [];
+            index[h] = {
+                hasData : false,
+                no : i
+            };
+        }
+
+        var timeIndex = index["Device Time"].no;
+        var timeFormat = d3.time.format("%d-%m-%Y %H:%M:%S.%L");
+
+        for(var row = 1; row < rawData.length; row++) {
+            var value = rawData[row].split(",");
+            for(var column = 0; column < value.length; column++) {
+                if (column != timeIndex) {
+                    continue;
+                }
+                if (jQuery.trim(value[column]) == "Device Time") {
+                    continue;
+                }
+                timeline.push(timeFormat.parse(value[column]));
+            }
+        }
+
+		for(var row = 1; row < rawData.length; row++) {
+			var value = rawData[row].split(",");
+			for(var column = 0; column < value.length; column++) {
+                var val = jQuery.trim(value[column]); 
+                if (val == header[column]) {
+                    continue;
+                }
+                if (column == timeIndex) {
+                    continue;
+                } else {
+                    if (!isNaN(val)) {
+                        index[header[column]].hasData = true;
+                    }
+                    data[column].push({
+                        x : timeline[row],
+                        y : isNaN(val) ? 0 : parseFloat(val)
+                    });
+                }
+			}
+		}
+
+        for(var i = 0; i < header.length; i++) {
+            if (!index[header[i]].hasData) {
+                $("#items").append("<li><strike>" + header[i] + "</strike></li>");
+            } else {
+                var html = [];
+
+                html.push("<li>");
+                // html.push("<input type='checkbox' value='");
+                // html.push(header[i]);
+                // html.push("'/>");
+                html.push("<span onMouseOver='this.style.backgroundColor=\"red\"'");
+                html.push(" onMouseOut='this.style.backgroundColor=\"white\"' ");
+                html.push(" onclick=\"drawChart(\'");
+                html.push(header[i]);
+                html.push("\')\">");
+                html.push(header[i]);
+                html.push("</span></li>");
+
+                $("#items").append(html.join(""));
+            }
+        }
+
+		// console.log(index);
+		// console.log(data);
+    }
+
+    function drawChart(id) {
+        // console.log("draw chart", id);
+        // console.log("time data", data[index["Device Time"]]);
+        // console.log("chart data", data[index[id]]);
+
+        nv.addGraph(function() {
+          var chart = nv.models.lineWithFocusChart();
+
+          //chart.xAxis.tickFormat(d3.format(',f'));
+          //chart.yAxis.tickFormat(d3.format(',.2f'));
+          //chart.y2Axis.tickFormat(d3.format(',.2f'));
+
+          d3.select('#chart svg')
+              .datum(getData(id))
+              .transition().duration(500)
+              .call(chart);
+
+          nv.utils.windowResize(chart.update);
+
+          return chart;
+        });
+
+        $("#chartTitle").text(id);
+
+        function getData(id) {
+            var result = [];
+            result.push( {
+                key : "Speed",
+                values : data[index[id].no]
+            });
+            return result;
+         }
+    }
+    // input type="file" onchange='readText(this)' / 
+</script>
+</head>
+<body onload="checkFileAPI();">
+    <h3>Torque log visualizer</h3>
+    <input type="file" onchange='readText(this)' />
+
+    <ul id="items">
+    </ul>
+
+    <h4 id="chartTitle"></h4>
+    <div id='chart'>
+      <svg style='height:500px'> </svg>
+    </div>
+
+    <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+ 
+</body>
+</html>
